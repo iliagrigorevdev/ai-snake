@@ -15,72 +15,46 @@ class Game {
     }
     this.boardSize = boardSize;
     this.startLength = startLength;
-    this.maxLength = boardSize * boardSize;
-    this.actualLength = this.startLength;
     this.planeCount = 7;
     this.actionSize = 4; // directions: 0 - x++, 1 - y++, 2 - x--, 3 - y--
+    this.board = null;
+  }
 
-    // Initialize
+  reset(x0, y0, direction0) {
+    if ((direction0 < 0) || (direction0 >= 4)) {
+      throw new Error("Invalid direction");
+    }
     this.board = this.createBoard();
-    var x0 = Math.floor((this.boardSize - 1 - this.startLength) / 2);
-    var y0 = Math.floor((this.boardSize - 1) / 2);
     this.board[TAIL_PLANE][y0][x0] = 1; // tail
-    this.board[HEAD_PLANE][y0][x0 + this.startLength - 1] = 1; // head
+    var bodyMovement = this.getBodyMovement(direction0)
     for (var i = 0; i < this.startLength; i++) {
-      var x = x0 + i;
-      this.board[BODY_PLANE][y0][x] = 1; // body
-      this.setBodyDirection(x, y0, 0); // x++
+      var x = x0 + i * bodyMovement.dx;
+      var y = y0 + i * bodyMovement.dy;
+      if ((x < 0) || (x >= this.boardSize) || (y < 0) || (y >= this.boardSize)) {
+        throw new Error("Invalid position");
+      }
+      this.board[BODY_PLANE][y][x] = 1; // body
+      this.setBodyDirection(x, y, direction0);
+      if (i == this.startLength - 1) {
+        this.board[HEAD_PLANE][y][x] = 1; // head
+      }
     }
     var goalPosition = this.getRandomFreePosition();
     this.board[GOAL_PLANE][goalPosition.y][goalPosition.x] = 1; // goal
-    this.history = [];
   }
 
-  getBoardSize() {
-    return this.boardSize;
-  }
-
-  getStartLength() {
-    return this.startLength;
-  }
-
-  getPlaneCount() {
-    return this.planeCount;
-  }
-
-  getActionSize() {
-    return this.actionSize;
-  }
-
-  getBoard() {
-    return this.board;
-  }
-
-  createBoard(source = null) {
+  createBoard() {
     var board = new Array(this.planeCount);
     for (var p = 0; p < this.planeCount; p++) {
       board[p] = new Array(this.boardSize);
       for (var y = 0; y < this.boardSize; y++) {
         board[p][y] = new Array(this.boardSize);
         for (var x = 0; x < this.boardSize; x++) {
-          board[p][y][x] = (source != null ? source[p][y][x] : 0);
+          board[p][y][x] = 0;
         }
       }
     }
     return board;
-  }
-
-  areBoardsEqual(board1, board2) {
-    for (var p = 0; p < this.planeCount; p++) {
-      for (var y = 0; y < this.boardSize; y++) {
-        for (var x = 0; x < this.boardSize; x++) {
-          if (board1[p][y][x] != board2[p][y][x]) {
-            return false;
-          }
-        }
-      }
-    }
-    return true;
   }
 
   setBodyDirection(x, y, direction) {
@@ -100,16 +74,13 @@ class Game {
 
   getBodyMovement(direction) {
     if (direction == 0) {
-      return {dx: 1, dy: 0}; // x++
-    }
-    else if (direction == 1) {
-      return {dx: 0, dy: 1}; // y++
-    }
-    else if (direction == 2) {
-      return {dx: -1, dy: 0}; // x--
-    }
-    else {
-      return {dx: 0, dy: -1}; // y--
+      return { dx: 1, dy: 0 }; // x++
+    } else if (direction == 1) {
+      return { dx: 0, dy: 1 }; // y++
+    } else if (direction == 2) {
+      return { dx: -1, dy: 0 }; // x--
+    } else {
+      return { dx: 0, dy: -1 }; // y--
     }
   }
 
@@ -124,12 +95,6 @@ class Game {
     var nextHeadX = headPosition.x + headMovement.dx;
     var nextHeadY = headPosition.y + headMovement.dy;
 
-    var prevBoard = this.createBoard(this.board);
-    this.history.push(prevBoard);
-    if (this.history.length > this.maxLength) {
-      this.history.shift();
-    }
-
     this.board[HEAD_PLANE][headPosition.y][headPosition.x] = 0; // clear old head position
     this.board[HEAD_PLANE][nextHeadY][nextHeadX] = 1; // set new head position
     this.board[BODY_PLANE][nextHeadY][nextHeadX] = 1; // set new head-body position
@@ -142,13 +107,26 @@ class Game {
     var y = headPosition.y;
     var nextDirection = nextHeadDirection;
     var direction = headDirection;
+    var goalConsumed = (this.board[CONSUME_PLANE][headPosition.y][headPosition.x] != 0);
+    var bodyPositions = [];
+    var bodyMovements = [];
     while (true) {
+      bodyPositions.push({ x: x, y: y });
+      if (goalConsumed && ((x != headPosition.x) || (y != headPosition.y))) {
+        bodyMovements.push({ dx: 0, dy: 0 });
+      } else {
+        var nextBodyMovement = this.getBodyMovement(nextDirection);
+        bodyMovements.push(nextBodyMovement);
+        if (goalConsumed) {
+          bodyPositions.push({ x: x, y: y });
+          bodyMovements.push({ dx: 0, dy: 0 });
+        }
+      }
+
       if (this.board[TAIL_PLANE][y][x] != 0) { // tail reached
-        var goalConsumed = (this.board[CONSUME_PLANE][headPosition.y][headPosition.x] != 0);
         if (goalConsumed) {
           // Do not move tail if goal consumed (grow snake)
           this.board[CONSUME_PLANE][headPosition.y][headPosition.x] = 0; // clear consumed goal
-          this.actualLength += 1;
         } else {
           if (this.board[HEAD_PLANE][y][x] == 0) { // if new head position not equal to previous tail position
             this.board[BODY_PLANE][y][x] = 0; // clear old tail-body position
@@ -167,6 +145,7 @@ class Game {
         }
         break;
       }
+
       nextX = x;
       nextY = y;
       var bodyMovement = this.getBodyMovement(direction);
@@ -175,6 +154,8 @@ class Game {
       nextDirection = direction;
       direction = this.getBodyDirection(x, y);
     }
+
+    return { bodyPositions: bodyPositions, bodyMovements: bodyMovements };
   }
 
   isValidMove(action) {
@@ -211,11 +192,22 @@ class Game {
     for (var y = 0; y < this.boardSize; y++) {
       for (var x = 0; x < this.boardSize; x++) {
         if (this.board[HEAD_PLANE][y][x] != 0) {
-          return {x: x, y: y};
+          return { x: x, y: y };
         }
       }
     }
     throw new Error("The head must always exist");
+  }
+
+  getGoalPosition() {
+    for (var y = 0; y < this.boardSize; y++) {
+      for (var x = 0; x < this.boardSize; x++) {
+        if (this.board[GOAL_PLANE][y][x] != 0) {
+          return { x: x, y: y };
+        }
+      }
+    }
+    return null;
   }
 
   isGameOver() {
@@ -227,27 +219,12 @@ class Game {
     return (this.board[CONSUME_PLANE][headPosition.y][headPosition.x] != 0);
   }
 
-  isLooped() {
-    var historyStart = this.history.length - this.actualLength;
-    if (historyStart >= 0) {
-      var headPosition = this.getHeadPosition();
-      for (var i = historyStart; i >= 0; i--) {
-        var historyBoard = this.history[i];
-        if ((historyBoard[HEAD_PLANE][headPosition.y][headPosition.x] != 0)
-            && this.areBoardsEqual(historyBoard, this.board)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   getRandomFreePosition() {
     var positions = [];
     for (var y = 0; y < this.boardSize; y++) {
       for (var x = 0; x < this.boardSize; x++) {
         if (this.board[BODY_PLANE][y][x] == 0) {
-          positions.push({x: x, y: y});
+          positions.push({ x: x, y: y });
         }
       }
     }
